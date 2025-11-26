@@ -6,7 +6,6 @@ import { FileUpload } from "@/components/FileUpload";
 import { ImagePreview } from "@/components/ImagePreview";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import heic2any from "heic2any";
 import { Download } from "lucide-react";
 
 const HeicToJpg = () => {
@@ -14,6 +13,9 @@ const HeicToJpg = () => {
 
   const handleFileSelect = async (file: File) => {
     try {
+      // 👇 Lazy-load heic2any only in browser, not during SSR
+      const heic2any = (await import("heic2any")).default;
+
       const convertedBlob = await heic2any({
         blob: file,
         toType: "image/jpeg",
