@@ -18,6 +18,7 @@ const ImageResizer = () => {
   const [width, setWidth] = useState<string>("");
   const [height, setHeight] = useState<string>("");
   const [originalDimensions, setOriginalDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [lockAspect, setLockAspect] = useState<boolean>(false);
 
   const handleFileSelect = (file: File) => {
     const reader = new FileReader();
@@ -37,23 +38,63 @@ const ImageResizer = () => {
     reader.readAsDataURL(file);
   };
 
+  const handleWidthChange = (val: string) => {
+    // allow free typing (keep as string). Only compute counterpart if parsed number is valid.
+    setWidth(val);
+    const parsed = parseInt(val, 10);
+    if (lockAspect && originalDimensions && !isNaN(parsed) && parsed > 0 && originalDimensions.width > 0) {
+      const newH = Math.round((parsed * originalDimensions.height) / originalDimensions.width);
+      setHeight(newH.toString());
+    }
+  };
+
+  const handleHeightChange = (val: string) => {
+    // allow free typing (keep as string). Only compute counterpart if parsed number is valid.
+    setHeight(val);
+    const parsed = parseInt(val, 10);
+    if (lockAspect && originalDimensions && !isNaN(parsed) && parsed > 0 && originalDimensions.height > 0) {
+      const newW = Math.round((parsed * originalDimensions.width) / originalDimensions.height);
+      setWidth(newW.toString());
+    }
+  };
+
   const handleResize = () => {
-    if (!originalImage || !width || !height) {
-      toast.error("Please provide both width and height");
+    if (!originalImage) {
+      toast.error("Please provide an image");
+      return;
+    }
+
+    const parsedW = parseInt(width, 10);
+    const parsedH = parseInt(height, 10);
+    if (isNaN(parsedW) || isNaN(parsedH) || parsedW <= 0 || parsedH <= 0) {
+      toast.error("Please provide valid numeric width and height");
       return;
     }
 
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = parseInt(width);
-      canvas.height = parseInt(height);
+      const maxDim = 10000;
+      const w = Math.max(1, Math.min(maxDim, parsedW));
+      const h = Math.max(1, Math.min(maxDim, parsedH));
+      if (w !== parsedW || h !== parsedH) {
+        toast('Dimensions adjusted to safe limits');
+      }
+      // reflect clamped values back into inputs so user sees final values
+      setWidth(w.toString());
+      setHeight(h.toString());
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext("2d");
-      
+
       if (ctx) {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setResizedImage(canvas.toDataURL("image/png"));
-        toast.success("Image resized successfully!");
+        try {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          setResizedImage(canvas.toDataURL("image/png"));
+          toast.success("Image resized successfully!");
+        } catch (err) {
+          toast.error('Failed to draw image on canvas (maybe too large)');
+        }
       }
     };
     img.src = originalImage;
@@ -118,7 +159,7 @@ const ImageResizer = () => {
                     id="width"
                     type="number"
                     value={width}
-                    onChange={(e) => setWidth(e.target.value)}
+                    onChange={(e) => handleWidthChange(e.target.value)}
                     placeholder="Width"
                   />
                 </div>
@@ -128,10 +169,21 @@ const ImageResizer = () => {
                     id="height"
                     type="number"
                     value={height}
-                    onChange={(e) => setHeight(e.target.value)}
+                    onChange={(e) => handleHeightChange(e.target.value)}
                     placeholder="Height"
                   />
                 </div>
+              </div>
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  id="lock-aspect"
+                  type="checkbox"
+                  checked={lockAspect}
+                  onChange={(e) => setLockAspect(e.target.checked)}
+                  className="w-4 h-4"
+                  style={{ accentColor: 'hsl(var(--primary))' }}
+                />
+                <Label htmlFor="lock-aspect">Lock aspect ratio</Label>
               </div>
               <div className="flex gap-3">
                 <Button onClick={handleResize} className="flex-1">

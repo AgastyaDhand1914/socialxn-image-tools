@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import "./globals.css";
 import QueryProvider from "./providers/QueryProvider";
+import { Toaster } from "sonner";
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <QueryProvider>
           {children}
         </QueryProvider>
+        {/* <Toaster /> */}
       </body>
     </html>
   );

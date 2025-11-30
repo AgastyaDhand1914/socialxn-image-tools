@@ -12,9 +12,12 @@ import { Download } from "lucide-react";
 
 const BulkImageResizer = () => {
   const [images, setImages] = useState<File[]>([]);
-  const [width, setWidth] = useState<number>(800);
-  const [height, setHeight] = useState<number>(600);
+  // keep as strings to allow free typing (no immediate clamping)
+  const [width, setWidth] = useState<string>('800');
+  const [height, setHeight] = useState<string>('600');
   const [processing, setProcessing] = useState(false);
+  const [maintainAspect, setMaintainAspect] = useState<boolean>(false);
+  const [primaryDimension, setPrimaryDimension] = useState<'width' | 'height'>('width');
 
   const handleFilesSelect = (file: File) => {
     setImages(prev => [...prev, file]);
@@ -22,18 +25,71 @@ const BulkImageResizer = () => {
   };
 
   const resizeImage = (file: File): Promise<Blob> => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d")!;
 
+      const objectUrl = URL.createObjectURL(file);
       img.onload = () => {
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob((blob) => resolve(blob!), file.type);
+        try {
+          // parse width/height from strings; fallback to defaults
+          const parsedW = parseInt(width as unknown as string, 10);
+          const parsedH = parseInt(height as unknown as string, 10);
+          const defaultW = 800;
+          const defaultH = 600;
+          const safeW = (!isNaN(parsedW) && parsedW > 0) ? parsedW : defaultW;
+          const safeH = (!isNaN(parsedH) && parsedH > 0) ? parsedH : defaultH;
+
+          let targetW = Math.max(1, Math.min(10000, safeW));
+          let targetH = Math.max(1, Math.min(10000, safeH));
+
+          if (maintainAspect && img.width > 0 && img.height > 0) {
+            if (primaryDimension === 'width') {
+              targetW = Math.max(1, Math.min(10000, safeW));
+              targetH = Math.max(1, Math.round((img.height * targetW) / img.width));
+            } else {
+              targetH = Math.max(1, Math.min(10000, safeH));
+              targetW = Math.max(1, Math.round((img.width * targetH) / img.height));
+            }
+          }
+
+          canvas.width = targetW;
+          canvas.height = targetH;
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          canvas.toBlob((blob) => {
+            // ensure blob exists; fallback to dataURL conversion
+            if (blob) {
+              resolve(blob);
+            } else {
+              try {
+                const dataUrl = canvas.toDataURL(file.type || 'image/png');
+                // convert dataURL to blob
+                const arr = dataUrl.split(',');
+                const mime = arr[0].match(/:(.*?);/)?.[1] || (file.type || 'image/png');
+                const bstr = atob(arr[1]);
+                let n = bstr.length;
+                const u8arr = new Uint8Array(n);
+                while (n--) {
+                  u8arr[n] = bstr.charCodeAt(n);
+                }
+                resolve(new Blob([u8arr], { type: mime }));
+              } catch (err) {
+                reject(err);
+              }
+            }
+          }, file.type || 'image/png');
+        } finally {
+          // release object URL
+          URL.revokeObjectURL(objectUrl);
+        }
       };
-      img.src = URL.createObjectURL(file);
+      img.onerror = (e) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(e);
+      };
+      img.src = objectUrl;
     });
   };
 
@@ -47,8 +103,13 @@ const BulkImageResizer = () => {
     const zip = new JSZip();
 
     for (let i = 0; i < images.length; i++) {
-      const resizedBlob = await resizeImage(images[i]);
-      zip.file(`resized_${i + 1}_${images[i].name}`, resizedBlob);
+      try {
+        const resizedBlob = await resizeImage(images[i]);
+        zip.file(`resized_${i + 1}_${images[i].name}`, resizedBlob);
+      } catch (err) {
+        console.error('Failed to resize', images[i].name, err);
+        toast.error(`Failed to resize ${images[i].name}`);
+      }
     }
 
     const content = await zip.generateAsync({ type: "blob" });
@@ -82,7 +143,10 @@ const BulkImageResizer = () => {
                 <Input
                   type="number"
                   value={width}
-                  onChange={(e) => setWidth(Number(e.target.value))}
+                  onChange={(e) => {
+                    setWidth(e.target.value);
+                    if (maintainAspect) setPrimaryDimension('width');
+                  }}
                 />
               </div>
               <div>
@@ -90,9 +154,24 @@ const BulkImageResizer = () => {
                 <Input
                   type="number"
                   value={height}
-                  onChange={(e) => setHeight(Number(e.target.value))}
+                  onChange={(e) => {
+                    setHeight(e.target.value);
+                    if (maintainAspect) setPrimaryDimension('height');
+                  }}
                 />
               </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                id="maintain-aspect"
+                type="checkbox"
+                checked={maintainAspect}
+                onChange={(e) => setMaintainAspect(e.target.checked)}
+                className="w-4 h-4"
+                style={{ accentColor: 'hsl(var(--primary))' }}
+              />
+              <Label htmlFor="maintain-aspect">Maintain aspect ratio (per image) - edit either width or height</Label>
             </div>
 
             <Button
